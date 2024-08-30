@@ -13,7 +13,6 @@ import requests
 
 def jsonurl(ns_uuid, startDate, endDate):
     base_url = f"https://_cgm:queries_@{ns_uuid}.cgm.bcdiabetes.ca/get-glucose-data"
-    #base_url = f"https://_cgm:queries_@9076ffe8-cd66-5d09-b358-4985b625cb7d.cgm.bcdiabetes.ca/get-glucose-data"
     params = {
         "gte": f"{startDate}Z",
         "lte": f"{endDate}Z"
