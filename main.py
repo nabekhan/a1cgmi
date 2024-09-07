@@ -32,12 +32,12 @@ def dataretrieve(ns_uuid, startDate, endDate):
     data = sorted(data, key=lambda d: d['date']) # sort data from first to last date
     return data, response.url
 
-def startA1cdate(endA1cdate):
-    startA1cdate = (datetime.fromisoformat(endA1cdate) - timedelta(days=90)).isoformat().split("T")[0]
+def startA1cdate(endA1cdate, days = 90):
+    startA1cdate = (datetime.fromisoformat(endA1cdate) - timedelta(days)).isoformat().split("T")[0]
     return startA1cdate
 
-def A1cdata(ns_uuid, A1cDate):
-    data, responseurl = dataretrieve(ns_uuid, startA1cdate(A1cDate), A1cDate)
+def A1cdata(ns_uuid, A1cDate, days = 90):
+    data, responseurl = dataretrieve(ns_uuid, startA1cdate(A1cDate, days), A1cDate)
     return data, responseurl
 
 def cgmtype(device):
@@ -45,11 +45,11 @@ def cgmtype(device):
         return "libre"
     else:
         return "dexcom"
-def dataPercent(glucoselist, type):
+def dataPercent(glucoselist, type, days=90):
     if type == "libre":
-        percent = len(glucoselist)/8640 * 100
+        percent = len(glucoselist)/(96*days) * 100
     else:
-        percent = len(glucoselist)/25920 * 100
+        percent = len(glucoselist)/(288*days) * 100
     return percent
 
 def average(lst):
@@ -64,7 +64,7 @@ def compareA1c(A1c, GMI):
     return dif
 
 
-def GMIstats(data, A1c):
+def GMIstats(data, A1c, days = 90):
     try:
         retrievedevice = data[0]['device']
     except:
@@ -72,23 +72,27 @@ def GMIstats(data, A1c):
     cgm = cgmtype(retrievedevice)
 
     # Get percent data based on brand
-    percentdata = dataPercent(data, cgm)
+    percentdata = dataPercent(data, cgm, days)
 
     # Get readings and calculate GMI
     sgv_values = list([entry['sgv'] for entry in data if 'sgv' in entry])
+    count = len(sgv_values)
     avgglucose = average(sgv_values)
     ptGMI = GMI(avgglucose)
     A1cdif = compareA1c(float(A1c), ptGMI)
-    return cgm, percentdata, avgglucose, ptGMI, A1cdif
+    TBR = (sum(i < 70 for i in sgv_values))/count*100
+    TAR = (sum(i > 180 for i in sgv_values))/count*100
+    TIR = 100 - TAR - TBR
+    return cgm, percentdata, avgglucose, ptGMI, A1cdif, TBR, TIR, TAR
 
-def main():
+def main(days = 90):
     with open(f"gitignore/results.csv", 'w', newline='', buffering=1) as f:
         writer = csv.writer(f)
         # Make headings
         results = [["ID", "link",
-                    "CGM1", "Percent Data1", "A1c1", "GMI1", "Date1", "Dif1",
-                    "CGM2", "Percent Data2", "A1c2", "GMI2", "Date2", "Dif2",
-                    "CGM3", "Percent Date3", "A1c3", "GMI3", "Date3", "Dif3"]]
+                    "CGM1", "Percent Data1", "A1c1", "GMI1", "Date1", "Dif1", "TBR1", "TIR1", "TAR1",
+                    "CGM2", "Percent Data2", "A1c2", "GMI2", "Date2", "Dif2", "TBR2", "TIR2", "TAR2",
+                    "CGM3", "Percent Date3", "A1c3", "GMI3", "Date3", "Dif3", "TBR3", "TIR3", "TAR3"]]
         writer.writerow(results[0])
         # Retrieving Data
         snap = 'gitignore/DPD snapshot (2024-08-11).csv'
@@ -115,11 +119,11 @@ def main():
                     try:
                         if row[ptA1c1date]:
                             A1c1date = row[ptA1c1date]
-                            data1, responseurl1 = A1cdata(row[ptNSCol], A1c1date)
+                            data1, responseurl1 = A1cdata(row[ptNSCol], A1c1date, days)
                             if data1:
                                 # Get Stats
                                 A1c1 = row[ptA1c1]
-                                cgm1, percentdata1, avgglucose1, ptGMI1, A1cdif1 = GMIstats(data1, A1c1)
+                                cgm1, percentdata1, avgglucose1, ptGMI1, A1cdif1, TBR1, TIR1, TAR1 = GMIstats(data1, A1c1, days)
                             else:
                                 cgm1 = ""
                                 percentdata1 = ""
@@ -127,14 +131,17 @@ def main():
                                 ptGMI1 = ""
                                 A1c1date = ""
                                 A1cdif1 = ""
+                                TBR1 = ""
+                                TIR1 = ""
+                                TAR1 = ""
 
                         if row[ptA1c2date]:
                             A1c2date = row[ptA1c2date]
-                            data2, responseurl2 = A1cdata(row[ptNSCol], A1c2date)
+                            data2, responseurl2 = A1cdata(row[ptNSCol], A1c2date, days)
                             if data2:
                                 # Get Stats
                                 A1c2 = row[ptA1c2]
-                                cgm2, percentdata2, avgglucose2, ptGMI2, A1cdif2 = GMIstats(data2, A1c2)
+                                cgm2, percentdata2, avgglucose2, ptGMI2, A1cdif2, TBR2, TIR2, TAR2 = GMIstats(data2, A1c2, days)
                             else:
                                 cgm2 = ""
                                 percentdata2 = ""
@@ -142,15 +149,17 @@ def main():
                                 ptGMI2 = ""
                                 A1c2date = ""
                                 A1cdif2 = ""
-
+                                TBR2 = ""
+                                TIR2 = ""
+                                TAR2 = ""
 
                         if row[ptA1c3date]:
                             A1c3date = row[ptA1c3date]
-                            data3, responseurl3 = A1cdata(row[ptNSCol], A1c3date)
+                            data3, responseurl3 = A1cdata(row[ptNSCol], A1c3date, days)
                             if data3:
                                 # Get Stats
                                 A1c3 = row[ptA1c3]
-                                cgm3, percentdata3, avgglucose3, ptGMI3, A1cdif3 = GMIstats(data3, A1c3)
+                                cgm3, percentdata3, avgglucose3, ptGMI3, A1cdif3, TBR3, TIR3, TAR3 = GMIstats(data3, A1c3, days)
                             else:
                                 cgm3 = ""
                                 percentdata3 = ""
@@ -158,12 +167,15 @@ def main():
                                 ptGMI3 = ""
                                 A1c3date = ""
                                 A1cdif3 = ""
+                                TBR3 = ""
+                                TIR3 = ""
+                                TAR3 = ""
 
                         if cgm1+cgm2+cgm3:
                             output=([int(float(row[ptIDCol].replace(',', ''))), row[ptLinkCol],
-                                            cgm1, percentdata1, A1c1, ptGMI1, A1c1date, A1cdif1,
-                                            cgm2, percentdata2, A1c2, ptGMI2, A1c2date, A1cdif2,
-                                            cgm3, percentdata3, A1c3, ptGMI3, A1c3date, A1cdif3])
+                                            cgm1, percentdata1, A1c1, ptGMI1, A1c1date, A1cdif1, TBR1, TIR1, TAR1,
+                                            cgm2, percentdata2, A1c2, ptGMI2, A1c2date, A1cdif2, TBR2, TIR2, TAR2,
+                                            cgm3, percentdata3, A1c3, ptGMI3, A1c3date, A1cdif3, TBR3, TIR3, TAR3])
                             writer.writerow(output)
                             print(output)
                     except:
