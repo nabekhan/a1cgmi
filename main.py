@@ -63,6 +63,30 @@ def compareA1c(A1c, GMI):
     dif = GMI - A1c
     return dif
 
+def timeinfluc(valdtlist, rapid = False):
+    events = 0
+    count = 0
+    if rapid:
+        t1 = 11
+    else:
+        t1 = 6
+    for index, entry in enumerate(valdtlist[1:], 1):
+        cur_entry = entry[0]
+        cur_date = entry[1]
+        prev_entry = valdtlist[index-1][0]
+        prev_date = valdtlist[index-1][1]
+        if index == 0:
+            continue
+        elif (cur_date - prev_date > (6 * 60 * 1000)): #skip max gap
+            continue
+        elif cur_date - prev_date>0:
+            events +=1
+            delta = abs(cur_entry - prev_entry)
+            timedelta = cur_date - prev_date
+            fluc = delta/timedelta
+            if fluc >= (t1 / (1000 * 60 * 5)):
+                count +=1
+    return(count/events * 100)
 
 def GMIstats(data, A1c, days = 90):
     try:
@@ -76,6 +100,12 @@ def GMIstats(data, A1c, days = 90):
 
     # Get readings and calculate GMI
     sgv_values = list([entry['sgv'] for entry in data if 'sgv' in entry])
+    sgv_dates = list([entry['date'] for entry in data if 'sgv' in entry])
+    sgv_valdt = []
+    for index, value in enumerate(sgv_values):
+            sgv_valdt.append([value, sgv_dates[index]])
+    timefluc = timeinfluc(sgv_valdt)
+    timerapid = timeinfluc(sgv_valdt, True)
     count = len(sgv_values)
     avgglucose = average(sgv_values)
     ptGMI = GMI(avgglucose)
@@ -83,23 +113,45 @@ def GMIstats(data, A1c, days = 90):
     TBR = (sum(i < 70 for i in sgv_values))/count*100
     TAR = (sum(i > 180 for i in sgv_values))/count*100
     TIR = 100 - TAR - TBR
-    return cgm, percentdata, avgglucose, ptGMI, A1cdif, TBR, TIR, TAR
+    verylow = (sum(i < 54 for i in sgv_values))/count*100
+    low = (sum(54 <= i < 70 for i in sgv_values)) / count * 100
+    high = (sum(180 < i <= 248.615 for i in sgv_values)) / count * 100
+    veryhigh = (sum(i > 248.615 for i in sgv_values))/count*100
+    return (cgm, count, percentdata, avgglucose, ptGMI, A1cdif, TBR, TIR, TAR,
+            timefluc, timerapid, verylow, low, high, veryhigh)
+
+def process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns):
+    """Process A1c data and return relevant statistics or empty values if no data."""
+    A1c_date = row[ptA1cDate]  # Access by index for lists
+    if A1c_date:
+        data, response_url = A1cdata(row[ptNSCol], A1c_date, days)
+        if data:
+            A1c_value = row[ptA1c]  # Access by index for lists
+            return GMIstats(data, A1c_value, days) + (A1c_value, A1c_date)
+    # Return empty strings for missing data
+    return ("",) * len(base_columns)
+
+
 
 def main(days = 90):
-    with open(f"gitignore/results.csv", 'w', newline='', buffering=1) as f:
+    with open(f"gitignore/results_"+str(days)+".csv", 'w', newline='', buffering=1) as f:
         writer = csv.writer(f)
         # Make headings
-        results = [["ID", "link",
-                    "CGM1", "Percent Data1", "A1c1", "GMI1", "Date1", "Dif1", "TBR1", "TIR1", "TAR1",
-                    "CGM2", "Percent Data2", "A1c2", "GMI2", "Date2", "Dif2", "TBR2", "TIR2", "TAR2",
-                    "CGM3", "Percent Date3", "A1c3", "GMI3", "Date3", "Dif3", "TBR3", "TIR3", "TAR3"]]
+        # Base column headers
+        base_columns = ["cgm", "count", "percentdata", "avgglucose", "ptGMI", "A1cdif", "TBR", "TIR", "TAR",
+            "timefluc", "timerapid", "verylow", "low", "high", "veryhigh", "A1c_value", "A1c_date"]
+        # Generating headers for multiple sets (1, 2, 3)
+        headers = ["ID", "link"] + [f"{col}{i}" for i in range(1, 4) for col in base_columns]
+        # Initialize results with headers
+        results = [headers]
         writer.writerow(results[0])
         # Retrieving Data
         snap = 'gitignore/DPD snapshot (2024-08-11).csv'
+        row_count = sum(1 for line in open(snap))
         with open(snap, mode="r") as snapdata:
             readfile = csv.reader(snapdata)
             for index, row in enumerate(readfile):
-                print(f"On Row {index}")
+                print(f"On Row {index}/{row_count} (Days: {days})")
                 if index == 0:
                     # Find columns of interest
                     ptIDCol = row.index('dpd_id')
@@ -117,68 +169,34 @@ def main(days = 90):
 
                 else:
                     try:
-                        if row[ptA1c1date]:
-                            A1c1date = row[ptA1c1date]
-                            data1, responseurl1 = A1cdata(row[ptNSCol], A1c1date, days)
-                            if data1:
-                                # Get Stats
-                                A1c1 = row[ptA1c1]
-                                cgm1, percentdata1, avgglucose1, ptGMI1, A1cdif1, TBR1, TIR1, TAR1 = GMIstats(data1, A1c1, days)
-                            else:
-                                cgm1 = ""
-                                percentdata1 = ""
-                                A1c1 = ""
-                                ptGMI1 = ""
-                                A1c1date = ""
-                                A1cdif1 = ""
-                                TBR1 = ""
-                                TIR1 = ""
-                                TAR1 = ""
+                        print(f"Pt: {str(int((row[ptIDCol]).replace(',', '').replace('.00', '')))}")
+                        # List of column mappings for A1c1, A1c2, and A1c3
+                        a1c_mappings = [
+                            (ptA1c1date, ptA1c1),
+                            (ptA1c2date, ptA1c2),
+                            (ptA1c3date, ptA1c3)
+                        ]
 
-                        if row[ptA1c2date]:
-                            A1c2date = row[ptA1c2date]
-                            data2, responseurl2 = A1cdata(row[ptNSCol], A1c2date, days)
-                            if data2:
-                                # Get Stats
-                                A1c2 = row[ptA1c2]
-                                cgm2, percentdata2, avgglucose2, ptGMI2, A1cdif2, TBR2, TIR2, TAR2 = GMIstats(data2, A1c2, days)
-                            else:
-                                cgm2 = ""
-                                percentdata2 = ""
-                                A1c2 = ""
-                                ptGMI2 = ""
-                                A1c2date = ""
-                                A1cdif2 = ""
-                                TBR2 = ""
-                                TIR2 = ""
-                                TAR2 = ""
+                        results = []
 
-                        if row[ptA1c3date]:
-                            A1c3date = row[ptA1c3date]
-                            data3, responseurl3 = A1cdata(row[ptNSCol], A1c3date, days)
-                            if data3:
-                                # Get Stats
-                                A1c3 = row[ptA1c3]
-                                cgm3, percentdata3, avgglucose3, ptGMI3, A1cdif3, TBR3, TIR3, TAR3 = GMIstats(data3, A1c3, days)
-                            else:
-                                cgm3 = ""
-                                percentdata3 = ""
-                                A1c3 = ""
-                                ptGMI3 = ""
-                                A1c3date = ""
-                                A1cdif3 = ""
-                                TBR3 = ""
-                                TIR3 = ""
-                                TAR3 = ""
+                        # Loop through each A1c mapping and process the data
+                        for ptA1cDate, ptA1c in a1c_mappings:
+                            results.extend(process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns))
 
-                        if cgm1+cgm2+cgm3:
-                            output=([int(float(row[ptIDCol].replace(',', ''))), row[ptLinkCol],
-                                            cgm1, percentdata1, A1c1, ptGMI1, A1c1date, A1cdif1, TBR1, TIR1, TAR1,
-                                            cgm2, percentdata2, A1c2, ptGMI2, A1c2date, A1cdif2, TBR2, TIR2, TAR2,
-                                            cgm3, percentdata3, A1c3, ptGMI3, A1c3date, A1cdif3, TBR3, TIR3, TAR3])
+                        # Check if any CGM data is present (first three elements correspond to cgm1, cgm2, cgm3)
+                        if any(results[i] for i in range(0, len(results), 9)):  # cgm1, cgm2, cgm3 positions
+                            output = [
+                                int(float(row[ptIDCol].replace(',', ''))),  # ID
+                                row[ptLinkCol],  # Link
+                                *results  # Unpack all A1c results
+                            ]
                             writer.writerow(output)
                             print(output)
-                    except:
-                        continue
+                    except Exception as e: print(e)
+                        #print("FAILED")
+                        #continue
 if __name__ == "__main__":
-    main()
+    #main(14)
+    #main(90)
+    main(60)
+    main(30)
