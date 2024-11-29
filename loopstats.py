@@ -28,17 +28,18 @@ from multiprocessing import Manager
 from sugarstats import *
 
 # Global variables
-periods = [-30, 30, 60, 90, 180, 360]
+periods = [30, -30, 60, 90, 180, 360]
+periods.sort()
 
 def process_stats(row, startdate, enddate, ptNSCol, days, base_columns):
     """Process A1c data and return relevant statistics or empty values if no data."""
     data, response_url = dataretrieve(row[ptNSCol], startdate, enddate)
     if data:
-        return GMIstats(data, days), data
+        return (startdate, enddate, days, ) + GMIstats(data, days), data
     # Return empty strings and empty list for missing data
     return ("",) * len(base_columns), []
 
-def loopperiod(startdate, days = 90):
+def adddays(startdate, days = 90):
     enddate = (datetime.fromisoformat(startdate) + timedelta(days)).isoformat().split("T")[0]
     return enddate
 
@@ -52,11 +53,20 @@ def process_row(row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol, base_
     if ns_deployed == 1:
         if loopstart:
             loopperiods = []
-            for period in periods:
+            first_positive_found = False
+            for i, period in enumerate(periods):
                 if period < 0:
-                    loopperiods.append((loopperiod(loopstart, period), loopstart, abs(period)))
+                    loopperiods.append((adddays(loopstart, period), adddays(loopstart, -1), abs(period)))
+                elif (period > 0) & (not first_positive_found):
+                    end_date = adddays(loopstart, period)
+                    loopperiods.append((loopstart, end_date, abs(period)))
+                    next_start_date = adddays(end_date, 1)
+                    first_positive_found = True
                 else:
-                    loopperiods.append((loopstart, loopperiod(loopstart, period), abs(period)))
+                    end_date = adddays(loopstart, period)
+                    loopperiods.append((next_start_date, end_date, abs(period)))
+                    next_start_date = adddays(end_date, 1)
+
             for startdate, enddate, days in loopperiods:
                 result, data = process_stats(row, startdate, enddate, ptNSCol, days, base_columns)
                 results.extend(result)
@@ -70,18 +80,6 @@ def process_row(row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol, base_
                     *results
                 ]
     return []  # Return empty lists instead of None
-
-
-def daily_avg_blood_sugar(daily_data, ptID):
-    """Calculate daily average blood sugar and export to CSV"""
-    daily_sgv = defaultdict(list)
-    for entry in daily_data:
-        if 'sgv' in entry:
-            date = datetime.fromtimestamp(entry['date'] / 1000).strftime('%Y-%m-%d')
-            daily_sgv[date].append(entry['sgv'])
-
-    daily_avg_results = [(ptID, date, sum(sgv_list) / len(sgv_list), len(sgv_list)) for date, sgv_list in daily_sgv.items()]
-    return daily_avg_results
 
 
 def loopstats(name="loop"):
@@ -99,11 +97,11 @@ def loopstats(name="loop"):
         ptLOOPStart = headers.index('LoopingStartDate')
         ptHardware = headers.index('Hardware')
 
-        base_columns = ["cgm", "count", "percentdata", "avgglucose", "STD", "ptGMI", "TBR", "TIR (3.9–10 mmol/L)",
+        base_columns = ["startdate", "enddate", "days", "cgm", "count", "percentdata", "avgglucose", "STD", "ptGMI", "TBR", "TIR (3.9–10 mmol/L)",
                         "TAR","verylow (<3 mmol/L)", "low (3–3.9 mmol/L)", "high (10–13.9 mmol/L)", "veryhigh (>13.8 mmol/L)",
                         "timefluc", "timerapid"]
 
-        final_headers = ["ID", "link", "loopstart", "ptHardware"] + [f"{col} ({str(period)})" for period in periods for col in base_columns]
+        final_headers = ["ID", "link", "ptHardware", "loopstart"] + [f"{col} ({str(period)})" for period in periods for col in base_columns]
 
         # Read all rows into a list to count them for progress bar
         rows = list(readfile)
