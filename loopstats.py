@@ -21,7 +21,6 @@ import warnings
 warnings.filterwarnings("ignore")
 from datetime import datetime, timedelta
 import csv
-from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm  # For progress bar
 from multiprocessing import Manager
