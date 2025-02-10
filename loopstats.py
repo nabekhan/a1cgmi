@@ -46,7 +46,7 @@ def process_row(row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol, base_
     results = []
     loopstart = row[ptLOOPStart]
     try:
-        ns_deployed = int(row[ptNSStatus])
+        ns_deployed = int(float(row[ptNSStatus]))
     except:
         ns_deployed = 0
     if ns_deployed == 1:
@@ -81,20 +81,20 @@ def process_row(row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol, base_
     return []  # Return empty lists instead of None
 
 
-def loopstats(name="loop"):
-    snap = 'gitignore/2024-10-30withNSs.csv'
+def loopstats(snap , name="loop"):
+    snap
 
     with open(snap, mode="r") as snapdata:
         readfile = csv.reader(snapdata)
         headers = next(readfile)
 
         # Define column indices
-        ptIDCol = headers.index('DPD_ID')
+        ptIDCol = headers.index('key')
         ptLinkCol = headers.index('link')
         ptNSCol = headers.index('ns_uuid')
         ptNSStatus = headers.index('ns_status')
-        ptLOOPStart = headers.index('LoopingStartDate')
-        ptHardware = headers.index('Hardware')
+        ptLOOPStart = headers.index('OSAID startdate')
+        ptHardware = headers.index('Software')
 
         base_columns = ["startdate", "enddate", "days", "cgm", "count", "percentdata", "avgglucose", "STD", "ptGMI", "TBR", "TIR (3.9–10 mmol/L)",
                         "TAR","verylow (<3 mmol/L)", "low (3–3.9 mmol/L)", "high (10–13.9 mmol/L)", "veryhigh (>13.8 mmol/L)",
