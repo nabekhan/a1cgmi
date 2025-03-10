@@ -2,6 +2,7 @@ from datetime import time
 from dateutil import parser
 import urllib.request
 from main import *
+import concurrent.futures
 
 def average(lst):
     return sum(lst) / len(lst)
@@ -50,12 +51,14 @@ def findcolumn(list, substring):
             return i
     return "Not Found"
 
-def writeresults(output, list):
-    with open(output, mode="r+") as output:
-        fieldnames = ["ID", "StartDate", "AvgGlucose", "GMI", "Percent", "Type", "TBRCount", "NSURL"]
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
+def writeresults(filename, data):
+    import csv
+    fieldnames = ["ID", "AvgGlucose", "GMI", "Percent",
+                  "Type", "TBRCount", "Data List", "NSURL"]
+    with open(filename, mode="w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
-        for row in list:
+        for row in data:
             writer.writerow(row)
 
 
@@ -171,81 +174,131 @@ def filterbytime(data, starttime, endtime): # note that this cannot handle times
 
 
 
-def main():
-    # Collecting Failed Statistics
-    nightscoutDeploy = 0
-    noData = 0
+def process_single_row(row, ptIDCol, ptNSCol, startdate, enddate):
+    """
+    Process a single row of data. Returns a tuple:
+       (nightscout_deploy_count, no_data_count, succeeded_count, result_dict_or_None)
+    """
+    nightscout_deploy = 0
+    no_data = 0
     succeeded = 0
+    result_entry = None
 
-    # Combining Data
+    ptID = row[ptIDCol]
+    ptUUID = row[ptNSCol]
+
+    try:
+        # Retrieve Data
+        data, response_url = dataretrieve(ptUUID, startdate, enddate)
+        # CGM Type
+        cgmbrand = cgmtype(data[0]['device'])
+
+        # Filter data by time
+        data = filterbytime(data, 7, 13)  # e.g., selects data within 7:00-13:00
+
+        # Quick demonstration printouts (if you need them; remove or wrap in logs for real use)
+        # for idx, k in enumerate(data):
+        #     if idx == 5: break
+        #     print((k, data[k]))
+
+    except Exception:
+        # Something prevented data retrieval (e.g., no NS deployed)
+        nightscout_deploy += 1
+        # Return immediately with counters updated
+        return (nightscout_deploy, no_data, succeeded, None)
+
+    # TBR
+    TBRcount, readings, datecount = tbrcalc(data, 63, cgmbrand)  # 63 mg/dL = ~3.5 mmol/L
+    if TBRcount < 4:
+        # We consider this a "no data" scenario for your code
+        no_data += 1
+        return (nightscout_deploy, no_data, succeeded, None)
+
+    try:
+        # Calculate statistics
+        percent = dataPercent(readings, cgmbrand)
+        avgglucose = average(readings)
+        estA1c = GMI(avgglucose)
+
+        succeeded += 1
+        # Build a dictionary for this row’s successful result
+        result_entry = {
+            "ID": ptID,
+            "AvgGlucose": avgglucose,
+            "GMI": estA1c,
+            "Percent": percent,
+            "Type": cgmbrand,
+            "TBRCount": TBRcount,
+            "Data List": datecount,
+            "NSURL": ptUUID
+        }
+    except Exception:
+        # Catch unexpected errors in calculations
+        no_data += 1
+
+    return (nightscout_deploy, no_data, succeeded, result_entry)
+
+def main():
+    # Files
     Snapshot = "gitignore/snapshot20250116.csv"
     NSOutput = "gitignore/osaid.csv"
+
+    # Combine CSVs once (outside parallel loop)
     combinecsv(Snapshot, NSOutput)
+
+    # Read from the merged CSV
     snap = 'gitignore/working.csv'
-    with open(snap, mode="r") as snapdata:
-        readfile = csv.reader(snapdata)
-        headers = next(readfile)
-        snaplist = list(readfile)
+    with open(snap, mode="r", newline='') as snapdata:
+        reader = csv.reader(snapdata)
+        headers = next(reader)
+        snaplist = list(reader)
 
-        # Find columns of interest
-        ptIDCol = headers.index('key')
-        ptNSCol = headers.index('ns_uuid')
-        enddate = datetime.today().strftime('%Y-%m-%d')
-        startdate = startDateCalc(enddate)
+    # Find columns of interest
+    ptIDCol = headers.index('key')
+    ptNSCol = headers.index('ns_uuid')
+    enddate = datetime.today().strftime('%Y-%m-%d')
+    startdate = startDateCalc(enddate)
 
-        # Skip field headers and iterate through each row
-        results = []
-        for row in snaplist:
-            ptID = row[ptIDCol]
-            print(ptID)
-            ptUUID = row[ptNSCol]
-            print(row)
+    # We’ll accumulate final results here
+    final_results = []
+    total_nightscout_deploy = 0
+    total_no_data = 0
+    total_succeeded = 0
 
+    # Create a process pool and map each row
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = [
+            executor.submit(process_single_row, row, ptIDCol, ptNSCol, startdate, enddate)
+            for row in snaplist
+        ]
+
+        # As results come in, update counters and store successes
+        for future in concurrent.futures.as_completed(futures):
             try:
-                #Retrieve Data
-                data, response_url = dataretrieve(ptUUID, startdate, enddate)
-                # CGM Type
-                cgmbrand = cgmtype(data[0]['device'])
-                print(cgmbrand)
-                data = filterbytime(data, 7, 13) # selects data within selected time
-                for idx, k in enumerate(data):
-                    if idx == 5: break
-                    print((k, data[k]))
-            except:
-                print("Nightscout not deployed? Skipping. . .")
-                nightscoutDeploy = nightscoutDeploy + 1
-                continue
+                nightscout_deploy, no_data, succeeded, result_dict = future.result()
+                total_nightscout_deploy += nightscout_deploy
+                total_no_data += no_data
+                total_succeeded += succeeded
 
-            # TBR
-            TBRcount, readings, datecount = tbrcalc(data, 63, cgmbrand) # <3.5 mmol/L
-            if TBRcount < 4:
-                print("Count less than 3! Skipping . . .")
-                continue
-            try:
-                print(readings)
-                # Percent
-                percent = dataPercent(readings, cgmbrand)
+                if result_dict is not None:
+                    final_results.append(result_dict)
 
-                # Glucose Avg
-                avgglucose = average(readings)
+            except Exception as exc:
+                # Catch any weird issues from within a single worker
+                print(f"Row worker generated an exception: {exc}")
 
-                # GMI
-                estA1c = GMI(avgglucose)
+    # Print final results or handle them as needed
+    print("All parallel processing complete.")
+    print("Nightscout Undeployed:", total_nightscout_deploy)
+    print("No Data Count:", total_no_data)
+    print("Succeeded Count:", total_succeeded)
+    print("Results:")
+    for r in final_results:
+        print(r)
 
-                # Add to results
-                print(ptID)
-                print(cgmbrand)
-                succeeded = succeeded + 1
-                results.append({"ID": ptID, "StartDate": startdate, "AvgGlucose": avgglucose,"GMI": estA1c, "Percent": percent, "Type": cgmbrand, "TBRCount": TBRcount, "Data List": datecount, "NSURL": ptUUID})
-            except:
-                continue
+    # Finally, write out the aggregated results
+    writeresults('results.csv', final_results)
 
-        # Output
-        print(results)
-        print("Nightscout's Undeployed: "+ str(nightscoutDeploy) + " | No Data: " + str(noData) + " | Succeeded: " + str(succeeded))
-        writeresults('results.csv', results)
-
-
-# Note: not selecting time range needed
+# If you're on Windows, guard your entry point:
 if __name__ == "__main__":
     main()
