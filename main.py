@@ -45,4 +45,4 @@ if __name__ == "__main__":
     Snapshot = "gitignore/snapshot20250116.csv"
     NSOutput = "gitignore/osaid.csv"
     combinecsv(Snapshot, NSOutput) # output combined csv with software - gitignore/working.csv
-    loopstats('gitignore/working.csv')
+    loopstats('gitignore/working.csv', "loopnight", "00:00", "06:00") #leave start and end time empty to process all data

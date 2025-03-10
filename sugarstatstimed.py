@@ -8,6 +8,7 @@ using an input of a nightscout query data
 
 import numpy as np
 from data_via_nsuuid import *
+import pickle
 
 # Calculate % Data Based on CGM
 def dataPercent(glucoselist, type, days=90):
@@ -100,3 +101,11 @@ def GMIstats(data, days = 90):
     # Return results
     return (cgm, count, percentdata, avgglucose, std, ptGMI, TBR, TIR, TAR,
             verylow, low, high, veryhigh, timefluc, timerapid)
+
+
+# Run file
+with open('file.pkl', 'rb') as file:
+    # Call load method to deserialze
+    data = pickle.load(file)
+    print(data)
+    print(GMIstats(data))
