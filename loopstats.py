@@ -28,7 +28,8 @@ from sugarstats import *
 import pandas as pd
 
 # Global variables
-periods = [30, -30, 60, 90, 180, 360]
+periods = [-30, 30, 60, 90, 180, 360]
+#periods = [30]
 periods.sort()
 
 debug = False
@@ -83,6 +84,7 @@ def filter_by_time_np(data, start_time, end_time):
 
 
 def process_stats(row, startdate, enddate, ptNSCol, days, base_columns, starttime, endtime):
+    print(row)
     """Process A1c data and return relevant statistics or empty values if no data."""
     # Retrieve data
     data, response_url = dataretrieve(row[ptNSCol], startdate, enddate)
@@ -110,42 +112,37 @@ def adddays(startdate, days = 90):
     enddate = (datetime.fromisoformat(startdate) + timedelta(days)).isoformat().split("T")[0]
     return enddate
 
-def process_row(row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol, base_columns, ptHardware, starttime, endtime):
+def process_row(row, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol, base_columns, ptHardware, starttime, endtime):
     results = []
     loopstart = row[ptLOOPStart]
-    try:
-        ns_deployed = int(float(row[ptNSStatus]))
-    except:
-        ns_deployed = 0
-    if ns_deployed == 1:
-        if loopstart:
-            loopperiods = []
-            first_positive_found = False
-            for i, period in enumerate(periods):
-                if period < 0:
-                    loopperiods.append((adddays(loopstart, period), adddays(loopstart, -1), abs(period)))
-                elif (period > 0) & (not first_positive_found):
-                    end_date = adddays(loopstart, period)
-                    loopperiods.append((loopstart, end_date, abs(period)))
-                    next_start_date = adddays(end_date, 1)
-                    first_positive_found = True
-                else:
-                    end_date = adddays(loopstart, period)
-                    loopperiods.append((next_start_date, end_date, abs(period)))
-                    next_start_date = adddays(end_date, 1)
+    if loopstart:
+        loopperiods = []
+        first_positive_found = False
+        for i, period in enumerate(periods):
+            if period < 0:
+                loopperiods.append((adddays(loopstart, period), adddays(loopstart, -1), abs(period)))
+            elif (period > 0) & (not first_positive_found):
+                end_date = adddays(loopstart, period)
+                loopperiods.append((loopstart, end_date, abs(period)))
+                next_start_date = adddays(end_date, 1)
+                first_positive_found = True
+            else:
+                end_date = adddays(loopstart, period)
+                loopperiods.append((next_start_date, end_date, abs(period)))
+                next_start_date = adddays(end_date, 1)
 
-            for startdate, enddate, days in loopperiods:
-                result, data = process_stats(row, startdate, enddate, ptNSCol, days, base_columns, starttime, endtime)
-                results.extend(result)
+        for startdate, enddate, days in loopperiods:
+            result, data = process_stats(row, startdate, enddate, ptNSCol, days, base_columns, starttime, endtime)
+            results.extend(result)
 
-            if any(results[i] for i in range(0, len(results), len(base_columns))):
-                return [
-                    int(float(row[ptIDCol].replace(',', ''))),
-                    row[ptLinkCol],
-                    row[ptHardware],
-                    loopstart,
-                    *results
-                ]
+        if any(results[i] for i in range(0, len(results), len(base_columns))):
+            return [
+                int(float(row[ptIDCol].replace(',', ''))),
+                row[ptLinkCol],
+                row[ptHardware],
+                loopstart,
+                *results
+            ]
     return []  # Return empty lists instead of None
 
 
@@ -158,7 +155,6 @@ def loopstats(snap , name="loop", starttime = "", endtime = ""): # enter a time
         ptIDCol = headers.index('key')
         ptLinkCol = headers.index('link')
         ptNSCol = headers.index('ns_uuid')
-        ptNSStatus = headers.index('ns_status')
         ptLOOPStart = headers.index('OSAID startdate')
         ptHardware = headers.index('Software')
 
@@ -178,8 +174,8 @@ def loopstats(snap , name="loop", starttime = "", endtime = ""): # enter a time
                 print(row)
                 try:
                     result = process_row(
-                        row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol, ptNSCol,
-                        base_columns, ptHardware, starttime, endtime
+                        row, ptLOOPStart, ptIDCol, ptLinkCol,
+                        ptNSCol, base_columns, ptHardware, starttime, endtime
                     )
                     print(f'\nResults: {result}')
                     if result:
@@ -188,13 +184,12 @@ def loopstats(snap , name="loop", starttime = "", endtime = ""): # enter a time
                     print(f"Error processing row: {e}")
         else:
             # Original parallel code
-            manager = Manager()
-            results = manager.list()
+            results = []
 
-            with ProcessPoolExecutor() as executor:
+            with ProcessPoolExecutor(max_workers=4) as executor:
                 futures = [
                     executor.submit(
-                        process_row, row, ptNSStatus, ptLOOPStart, ptIDCol, ptLinkCol,
+                        process_row, row, ptLOOPStart, ptIDCol, ptLinkCol,
                         ptNSCol, base_columns, ptHardware, starttime, endtime
                     )
                     for row in rows
@@ -204,6 +199,8 @@ def loopstats(snap , name="loop", starttime = "", endtime = ""): # enter a time
                         result = future.result()
                         if result:
                             results.append(result)
+                        else:
+                            print(f"No result found!")
                     except Exception as e:
                         print(f"Error processing row: {e}")
 

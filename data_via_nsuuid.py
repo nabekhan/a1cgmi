@@ -4,6 +4,7 @@ This module takes NS_UUIDs, a start and end date, and retrieves their data
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import time
 import pytz
 from datetime import datetime
 
@@ -55,19 +56,28 @@ def timezone(ns_uuid, endDate):
     return tz
 
 # Obtain data
-def dataretrieve(ns_uuid, startDate, endDate):
-    if ns_uuid:
-        url = jsonurl(ns_uuid, startDate, endDate)
-        auth = ('_cgm', 'queries_')  # Authentication credentials
-        response = requests.get(url, auth=auth)
-        # Print the final URL being used for the request
-        #print("Request URL:", response.url)
-        response.raise_for_status()  # Check if the request was successful
-        data = response.json()
-        data = sorted(data, key=lambda d: d['date']) # sort data from first to last date
-        return data, response.url
-    else:
+def dataretrieve(ns_uuid, startDate, endDate, max_retries=10):
+    if not ns_uuid:
         return "", ""
+
+    delay = 3  # initial delay in seconds
+    for attempt in range(max_retries):
+        try:
+            url = jsonurl(ns_uuid, startDate, endDate)
+            auth = ('_cgm', 'queries_')  # Authentication credentials
+            response = requests.get(url, auth=auth, timeout=(20, 60))
+            response.raise_for_status()  # Check if the request was successful
+            data = response.json()
+            data = sorted(data, key=lambda d: d['date'])  # sort data from first to last date
+            return data, response.url
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                print(f"Attempt {attempt + 1} on {url} failed: {e}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+            else:
+                print(f"Attempt {attempt + 1} on {url} failed: {e}. No more retries.")
+                return "", ""
 
 # Subset sugars from data
 def sugarreadings(data):

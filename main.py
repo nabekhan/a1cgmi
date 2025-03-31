@@ -1,15 +1,21 @@
 from a1cgmi import *
 from loopstats import *
 import pandas as pd
+from datetime import date, timedelta
 
-def combinecsv(csv1, csv2):
-    csv1 = pd.read_csv(csv1)
-    csv2 = pd.read_csv(csv2)
-    csv1.rename(columns={csv1.columns[0]: "key"}, inplace=True)
-    csv2.rename(columns={csv2.columns[0]: "key"}, inplace=True)
+def combinecsv(snapshot, nslist):
+    snapshot = pd.read_csv(snapshot)
+    snapshot["PATIENT_ID"] = snapshot["link"].str.extract(r"patient_id=(\d+)").astype("int64")
+    cols = ["PATIENT_ID"] + [col for col in snapshot.columns if col != "PATIENT_ID"]
+    snapshot = snapshot[cols]
+
+    nslist = pd.read_csv(nslist)
+
+    snapshot.rename(columns={snapshot.columns[0]: "key"}, inplace=True)
+    nslist.rename(columns={nslist.columns[0]: "key"}, inplace=True)
 
     # Perform inner join on the first column (assuming no header issues)
-    df = csv1.merge(csv2, on=csv1.columns[0], how='inner')
+    df = snapshot.merge(nslist, on=snapshot.columns[0], how='inner')
 
     # Convert date columns to datetime (coerce errors so invalid/missing become NaT)
     df['AAPS_date_start'] = pd.to_datetime(df['AAPS_date_start'], errors='coerce')
@@ -28,21 +34,26 @@ def combinecsv(csv1, csv2):
             used_softwares.append(("iAPS", row['iAPS_date_start']))
 
         if not used_softwares:
-            return ""  # or return None, or an explicit label like "No AID"
+            return (None, None)  # or return None, or an explicit label like "No AID"
 
         # Pick the tuple with the max date
         most_recent = max(used_softwares, key=lambda x: x[1])
-        return most_recent[0]
+        return (most_recent[0], most_recent[1]) # replace date with 1 month ago
 
     # Apply the helper function row by row
-    df["Software"] = df.apply(pick_most_recent_sw, axis=1)
+    df[["Software", "OSAID startdate"]] = df.apply(pick_most_recent_sw, axis=1, result_type="expand")
+    df = df.dropna(subset=['Software'])
+    df = df.dropna(subset=['ns_status'])
+    df = df[df['ns_status'] != 0]
 
     # Save the updated DataFrame to a new CSV
     df.to_csv("gitignore/working.csv", index=False)
 
 if __name__ == "__main__":
     #a1cgmi(90)
-    Snapshot = "gitignore/snapshot20250116.csv"
-    NSOutput = "gitignore/osaid.csv"
+    Snapshot = "gitignore/snap(2025-03-05).csv"
+    NSOutput = "gitignore/modifiedcgmstat.csv"
     combinecsv(Snapshot, NSOutput) # output combined csv with software - gitignore/working.csv
-    loopstats('gitignore/working.csv', "loopnight", "00:00", "06:00") #leave start and end time empty to process all data
+    loopstats('gitignore/working.csv', "cgmnight") #leave start and end time empty to process all data
+
+    #Plan: Set the Loop start date to 1 month ago from now for all people with nightscout accounts. This script will then calc stats.
