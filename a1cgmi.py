@@ -66,15 +66,14 @@ def daily_avg_blood_sugar(daily_data, ptID):
     return daily_avg_results
 
 
-def a1cgmi(days=90):
-    snap = 'gitignore/DPD 2024-10-30.csv'
+def a1cgmi(snap, days=90):
 
     with open(snap, mode="r") as snapdata:
         readfile = csv.reader(snapdata)
         headers = next(readfile)
 
         # Define column indices
-        ptIDCol = headers.index('DPD_ID')
+        ptIDCol = headers.index('key')
         ptLinkCol = headers.index('link')
         ptNSCol = headers.index('ns_uuid')
         ptA1c1 = headers.index('A1c')

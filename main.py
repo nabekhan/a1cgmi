@@ -3,11 +3,12 @@ from loopstats import *
 import pandas as pd
 from datetime import date, timedelta
 
-def combinecsv(snapshot, nslist):
+def combinecsv(snapshot, nslist, RMnonloop):
     snapshot = pd.read_csv(snapshot)
     snapshot["PATIENT_ID"] = snapshot["link"].str.extract(r"patient_id=(\d+)").astype("int64")
     cols = ["PATIENT_ID"] + [col for col in snapshot.columns if col != "PATIENT_ID"]
     snapshot = snapshot[cols]
+    snapshot.to_csv("gitignore/snapID.csv", index=False)
 
     nslist = pd.read_csv(nslist)
 
@@ -42,7 +43,10 @@ def combinecsv(snapshot, nslist):
 
     # Apply the helper function row by row
     df[["Software", "OSAID startdate"]] = df.apply(pick_most_recent_sw, axis=1, result_type="expand")
-    df = df.dropna(subset=['Software'])
+    if RMnonloop:
+        df = df.dropna(subset=['Software'])
+
+    # Remove inactive nightscouts
     df = df.dropna(subset=['ns_status'])
     df = df[df['ns_status'] != 0]
 
@@ -50,10 +54,8 @@ def combinecsv(snapshot, nslist):
     df.to_csv("gitignore/working.csv", index=False)
 
 if __name__ == "__main__":
-    #a1cgmi(90)
     Snapshot = "gitignore/snap(2025-03-05).csv"
-    NSOutput = "gitignore/modifiedcgmstat.csv"
-    combinecsv(Snapshot, NSOutput) # output combined csv with software - gitignore/working.csv
-    loopstats('gitignore/working.csv', "cgmnight") #leave start and end time empty to process all data
-
-    #Plan: Set the Loop start date to 1 month ago from now for all people with nightscout accounts. This script will then calc stats.
+    NSOutput = "gitignore/ns_status_all-2025-04-30_23-12-18.csv"
+    combinecsv(Snapshot, NSOutput, False) # output combined csv with software - gitignore/working.csv
+    a1cgmi('gitignore/working.csv')
+    #loopstats('gitignore/working.csv', "cgmnight") #leave start and end time empty to process all data
