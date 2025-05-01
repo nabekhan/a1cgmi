@@ -24,7 +24,7 @@ def A1cdata(ns_uuid, A1cDate, days = 90):
     data, responseurl = dataretrieve(ns_uuid, startA1cdate(A1cDate, days), A1cDate)
     return data, responseurl
 
-def process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns):
+def process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns, ptIDCol):
     """Process A1c data and return relevant statistics or empty values if no data."""
     A1c_date = row[ptA1cDate]  # Access by index for lists
     if A1c_date:
@@ -33,6 +33,7 @@ def process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns):
             A1c_value = row[ptA1c]  # Access by index for lists
             return GMIstats(data, days) + (A1c_value, A1c_date), data
     # Return empty strings and empty list for missing data
+    print(f'No Data on NS for {row[ptIDCol]}, {row[ptA1c]}, {row[ptA1cDate]}')
     return ("",) * len(base_columns), []
 
 
@@ -40,7 +41,7 @@ def process_row(row, a1c_mappings, ptIDCol, ptLinkCol, ptNSCol, days, base_colum
     results = []
     daily_data = []
     for ptA1cDate, ptA1c in a1c_mappings:
-        result, data = process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns)
+        result, data = process_A1c(row, ptA1cDate, ptA1c, ptNSCol, days, base_columns, ptIDCol)
         dailies = daily_avg_blood_sugar(data, row[ptIDCol])
         results.extend(result)
         daily_data.extend(dailies)

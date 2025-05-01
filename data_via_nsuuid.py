@@ -64,6 +64,7 @@ def dataretrieve(ns_uuid, startDate, endDate, max_retries=10):
     for attempt in range(max_retries):
         try:
             url = jsonurl(ns_uuid, startDate, endDate)
+            #print(url)
             auth = ('_cgm', 'queries_')  # Authentication credentials
             response = requests.get(url, auth=auth, timeout=(20, 60))
             response.raise_for_status()  # Check if the request was successful
